@@ -39,7 +39,7 @@ export default function LoginPage() {
 
     try {
       const result = await login(username, password);
-      
+
       if (!result.success) {
         setError(result.error);
         setLoading(false);
@@ -135,6 +135,15 @@ export default function LoginPage() {
                 'Sign In'
               )}
             </button>
+
+            <div className="flex items-center justify-between mt-4">
+              <a
+                href="/forgot-password"
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Forgot Password?
+              </a>
+            </div>
           </form>
 
           {/* Default Credentials Info */}
@@ -150,6 +159,8 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
+
+
 
         {/* Footer */}
         <p className="text-center text-sm text-gray-600 mt-6">

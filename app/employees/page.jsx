@@ -2,16 +2,35 @@
 
 import { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
+import TopBar from '@/components/layout/TopBar';
 import { employeeAPI } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { FiPlus, FiEdit, FiTrash2, FiUser, FiMail, FiPhone, FiX } from 'react-icons/fi';
+import { 
+  FiPlus, 
+  FiEdit, 
+  FiTrash2, 
+  FiUser, 
+  FiMail, 
+  FiPhone, 
+  FiX,
+  FiKey,
+  FiCopy,
+  FiCheckCircle,
+  FiAlertCircle,
+  FiRefreshCw
+} from 'react-icons/fi';
 
 export default function EmployeesPage() {
   const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
+  const [createdCredentials, setCreatedCredentials] = useState(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [copiedField, setCopiedField] = useState(null);
+  
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -95,7 +114,7 @@ export default function EmployeesPage() {
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
-    if (!formData.employee_code.trim()) {
+    if (!editingEmployee && !formData.employee_code.trim()) {
       newErrors.employee_code = 'Employee code is required';
     }
     if (!formData.department.trim()) {
@@ -117,7 +136,6 @@ export default function EmployeesPage() {
     }
 
     try {
-      // Clean up data - convert empty strings to null
       const cleanedData = {
         ...formData,
         phone: formData.phone || null,
@@ -126,12 +144,25 @@ export default function EmployeesPage() {
 
       if (editingEmployee) {
         await employeeAPI.update(editingEmployee.id, cleanedData);
+        handleCloseModal();
+        loadEmployees();
+        alert('Employee updated successfully!');
       } else {
-        await employeeAPI.create(cleanedData);
+        // Creating new employee - will receive temp password
+        const response = await employeeAPI.create(cleanedData);
+        
+        // Store credentials to show in modal
+        setCreatedCredentials({
+          username: response.data.email.split('@')[0],
+          password: response.data.temp_password,
+          email: response.data.email,
+          name: `${response.data.first_name} ${response.data.last_name}`
+        });
+        
+        handleCloseModal();
+        setShowPasswordModal(true);
+        loadEmployees();
       }
-
-      handleCloseModal();
-      loadEmployees();
     } catch (error) {
       console.error('Error saving employee:', error);
       if (error.response?.data?.detail) {
@@ -142,8 +173,27 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleResetPassword = async (employeeId) => {
+    if (confirm('Are you sure you want to reset this employee\'s password?')) {
+      try {
+        const response = await employeeAPI.resetPassword(employeeId);
+        setCreatedCredentials({
+          username: response.data.username,
+          password: response.data.temp_password,
+          email: employees.find(e => e.id === employeeId)?.email,
+          name: employees.find(e => e.id === employeeId) 
+            ? `${employees.find(e => e.id === employeeId).first_name} ${employees.find(e => e.id === employeeId).last_name}`
+            : 'Employee'
+        });
+        setShowPasswordModal(true);
+      } catch (error) {
+        alert('Failed to reset password');
+      }
+    }
+  };
+
   const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to delete this employee?')) {
+    if (confirm('Are you sure you want to delete this employee? This will also delete their user account.')) {
       try {
         await employeeAPI.delete(id);
         loadEmployees();
@@ -153,13 +203,18 @@ export default function EmployeesPage() {
     }
   };
 
+  const copyToClipboard = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
-    // Clear error for this field
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -173,11 +228,14 @@ export default function EmployeesPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="spinner w-12 h-12 mx-auto mb-4"></div>
-            <div className="text-gray-600">Loading employees...</div>
+        <Sidebar isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
+        <div className="flex-1 flex flex-col">
+          <TopBar onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} isMobileMenuOpen={isMobileMenuOpen} />
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="spinner w-12 h-12 mx-auto mb-4"></div>
+              <div className="text-gray-600">Loading employees...</div>
+            </div>
           </div>
         </div>
       </div>
@@ -186,14 +244,16 @@ export default function EmployeesPage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
+      <Sidebar isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
       
-      <div className="flex-1 overflow-auto">
-        <div className="p-8">
+      <div className="flex-1 flex flex-col">
+        <TopBar onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} isMobileMenuOpen={isMobileMenuOpen} />
+        
+        <div className="flex-1 overflow-auto p-8">
           <div className="flex justify-between items-center mb-8">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Employees</h1>
-              <p className="text-gray-600 mt-2">Manage employee records</p>
+              <p className="text-gray-600 mt-2">Manage employee records and accounts</p>
             </div>
             {canManageEmployees && (
               <button
@@ -302,6 +362,13 @@ export default function EmployeesPage() {
                                 <FiEdit size={18} />
                               </button>
                               <button
+                                onClick={() => handleResetPassword(employee.id)}
+                                className="text-orange-600 hover:text-orange-900 transition-fast p-2 hover:bg-orange-50 rounded"
+                                title="Reset Password"
+                              >
+                                <FiRefreshCw size={18} />
+                              </button>
+                              <button
                                 onClick={() => handleDelete(employee.id)}
                                 className="text-red-600 hover:text-red-900 transition-fast p-2 hover:bg-red-50 rounded"
                                 title="Delete"
@@ -321,7 +388,7 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Employee Modal */}
+      {/* Employee Form Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-custom">
           <div className="card max-w-2xl w-full max-h-[90vh] overflow-y-auto fade-in-scale">
@@ -389,13 +456,17 @@ export default function EmployeesPage() {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
+                    disabled={editingEmployee}
                     className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 transition-fast ${
                       errors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    } ${editingEmployee ? 'bg-gray-50 cursor-not-allowed' : ''}`}
                     placeholder="john.doe@company.com"
                   />
                   {errors.email && (
                     <p className="text-red-500 text-xs mt-1">{errors.email}</p>
+                  )}
+                  {editingEmployee && (
+                    <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
                   )}
                 </div>
 
@@ -415,24 +486,26 @@ export default function EmployeesPage() {
                 </div>
 
                 {/* Employee Code */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Employee Code <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="employee_code"
-                    value={formData.employee_code}
-                    onChange={handleInputChange}
-                    className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 transition-fast font-mono ${
-                      errors.employee_code ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="EMP001"
-                  />
-                  {errors.employee_code && (
-                    <p className="text-red-500 text-xs mt-1">{errors.employee_code}</p>
-                  )}
-                </div>
+                {!editingEmployee && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Employee Code <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="employee_code"
+                      value={formData.employee_code}
+                      onChange={handleInputChange}
+                      className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 transition-fast font-mono ${
+                        errors.employee_code ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="EMP001"
+                    />
+                    {errors.employee_code && (
+                      <p className="text-red-500 text-xs mt-1">{errors.employee_code}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Department */}
                 <div>
@@ -508,6 +581,18 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
+              {!editingEmployee && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+                  <div className="flex items-start gap-3">
+                    <FiAlertCircle className="text-blue-600 mt-0.5" size={20} />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-semibold mb-1">Auto-generated Login Credentials</p>
+                      <p>A secure password will be automatically generated. You will see the credentials after creating the employee.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex gap-3 pt-6 border-t border-gray-200">
                 <button
@@ -525,6 +610,86 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Display Modal */}
+      {showPasswordModal && createdCredentials && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-custom">
+          <div className="card max-w-md w-full fade-in-scale">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 rounded-lg gradient-success flex items-center justify-center">
+                  <FiCheckCircle className="text-white" size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Account Created!</h3>
+                  <p className="text-sm text-gray-600">Save these credentials securely</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <FiAlertCircle className="text-yellow-600 mt-0.5" size={20} />
+                  <div className="text-sm text-yellow-800">
+                    <p className="font-semibold">Important!</p>
+                    <p>This password will only be shown once. Make sure to copy and share it with the employee.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Employee Name</label>
+                  <div className="font-semibold text-gray-900">{createdCredentials.name}</div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Email / Username</label>
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <code className="flex-1 text-sm font-mono">{createdCredentials.email}</code>
+                    <button
+                      onClick={() => copyToClipboard(createdCredentials.email, 'username')}
+                      className="text-blue-600 hover:text-blue-700 transition-fast p-1"
+                      title="Copy"
+                    >
+                      {copiedField === 'username' ? <FiCheckCircle size={18} /> : <FiCopy size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Temporary Password</label>
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <code className="flex-1 text-sm font-mono text-red-600 font-bold">{createdCredentials.password}</code>
+                    <button
+                      onClick={() => copyToClipboard(createdCredentials.password, 'password')}
+                      className="text-blue-600 hover:text-blue-700 transition-fast p-1"
+                      title="Copy"
+                    >
+                      {copiedField === 'password' ? <FiCheckCircle size={18} /> : <FiCopy size={18} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                <p>📧 The employee should change this password after their first login.</p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setCreatedCredentials(null);
+                }}
+                className="w-full gradient-primary text-white py-3 rounded-lg font-semibold transition hover-scale"
+              >
+                I ve Saved the Credentials
+              </button>
+            </div>
           </div>
         </div>
       )}
